@@ -1,3 +1,4 @@
+var BigNumber = require('bignumber.js');
 const DynTbl = (($) => {
 
 
@@ -37,7 +38,10 @@ const DynTbl = (($) => {
             TOTALWRAPPER: `[${Attributes.TABLEATTR}-total]`,
             PERCENTAGEWRAPPER: `[${Attributes.PERCENTAGEWRAPPER}]`,
             TOTALALLWRAPPER: `[${Attributes.TABLEATTR}-total-all]`,
+            TOTALALLEXCLUDE: `[${Attributes.TABLEATTR}-total-all-exclude]`,
             DATASTOREATTR: `[${Attributes.DATASTOREATTR}]`,
+            INPUTCOLWATCHED: `input[dyntbl-watch*=col]`,
+            INPUTROWWATCHED: `input[dyntbl-watch*=row]`,
             // rows/col duplication
             EMPTYROW: `[${Attributes.EMPTYROW}]`,
             EMPTYTHEADCELL: `[${Attributes.EMPTYTHEADCELL}]`,
@@ -59,15 +63,14 @@ const DynTbl = (($) => {
         constructor(element) {
             this._element = element
             this.$t = $(this._element)
-            this.$thead = this.$t.find('thead')
-            this.$tbody = this.$t.find('tbody')
+            const { $thead, $tbody } = this.getElements()
             this.$emptyrow = this.$t.find(Selector.EMPTYROW)
                 .detach()
                 .removeAttr(Attributes.EMPTYROW),
             this.$emptycell = this.$emptyrow.find(Selector.EMPTYCELL)
                 .detach()
                 .removeAttr(Attributes.EMPTYCELL),
-            this.$emptytheadcell = this.$thead.find(Selector.EMPTYTHEADCELL)
+            this.$emptytheadcell = $thead.find(Selector.EMPTYTHEADCELL)
                 .detach()
                 .removeAttr(Attributes.EMPTYTHEADCELL)
 
@@ -78,8 +81,8 @@ const DynTbl = (($) => {
 
             // what should work or not
             this.features = {
-                isTotalReady : (this.$tbody.find(Selector.WATCHEDINPUT)
-                    .length + this.$tbody.find(Selector.TOTALWRAPPER)
+                isTotalReady : ($tbody.find(Selector.WATCHEDINPUT)
+                    .length + $tbody.find(Selector.TOTALWRAPPER)
                     .length > 1),
                 isDynRowReady : this.$emptyrow.length === 1,
                 isDynColReady : (this.$emptycell.length === 1 || this.$emptytheadcell.length === 1)
@@ -150,8 +153,9 @@ const DynTbl = (($) => {
         }
         addRow() {
             const
+                { $thead, $tbody } = this.getElements(),
                 $newrow = this.$emptyrow.clone(),
-                totcols = this.$thead.find('tr')
+                totcols = $thead.find('tr')
                 .find('>*')
                 .length
             let
@@ -178,9 +182,10 @@ const DynTbl = (($) => {
             }
         }
         addCol() {
-            this.insertCellInRow(this.$thead.find('tr'), this.$emptytheadcell.clone())
+            const { $thead, $tbody } = this.getElements()
+            this.insertCellInRow($thead.find('tr'), this.$emptytheadcell.clone())
             const ins = this.insertCellInRow.bind(this), clone = this.$emptycell
-            this.$tbody.find('tr').each(function() {
+            $tbody.find('tr').each(function() {
                 ins($(this), clone.clone())
             })
             // update totals if needed
@@ -209,12 +214,13 @@ const DynTbl = (($) => {
 
         // Utils
         insertRowInTbody ($row) {
+            const { $thead, $tbody } = this.getElements()
             if (this.newrowindex === 0) {
-                this.$tbody.prepend($row)
+                $tbody.prepend($row)
             } else if (this.newrowindex === '') {
-                this.$tbody.append($row)
+                $tbody.append($row)
             } else {
-                this.$tbody.find('>*')
+                $tbody.find('>*')
                     .eq(this.newrowindex)
                     .before($row)
             }
@@ -236,6 +242,7 @@ const DynTbl = (($) => {
         // [dyntbl-watch=*col] : search and update dyntbl-total in same column
         updateTotals ($input) {
             const
+                { $thead, $tbody } = this.getElements(),
                 directions = $input.attr(Attributes.WATCHEDINPUT).split(',')
 
             let $cells, $cell, $allinputs, $totalcell, $perccell, sum, tot
@@ -244,46 +251,52 @@ const DynTbl = (($) => {
 
                 $cells = $input.closest('tr').children()
                 $cell = $input.closest('td')
-                sum = 0
+                sum = new BigNumber(0)
 
                 const
-                    $trs = this.$tbody.find(`> tr`),
-                    colidx = $cells.index($cell) + 1
+                    $trs = $tbody.find(`> tr`),
+                    colidx = $cells.index($cell) + 1,
+                    allinputs = []
                 
-                $allinputs = $trs.find(`>*:nth-child(${colidx}) input`)
-                $totalcell = this.$tbody.find(`> tr > ${Selector.TOTALWRAPPER}:nth-child(${colidx})`)
-                $perccell = this.$tbody.find(`> tr > ${Selector.PERCENTAGEWRAPPER}:nth-child(${colidx})`)
+                $trs.find(`>*:nth-child(${colidx})`).each( function(){ 
+                    let e = $(this).find(Selector.INPUTCOLWATCHED).first() 
+                    e.length > 0 && allinputs.push(e) 
+                })
+                $allinputs = $(allinputs)
+                $totalcell = $tbody.find(`> tr > ${Selector.TOTALWRAPPER}:nth-child(${colidx})`)
+                $perccell = $tbody.find(`> tr > ${Selector.PERCENTAGEWRAPPER}:nth-child(${colidx})`)
 
                 if ($totalcell.length > 0) {
                     $.each($allinputs, function() {
                         const
                             $e = $(this),
-                            v = parseInt($e.val())
-                        if (!isNaN(v)) { sum += v }
+                            v = new BigNumber($e.val())
+                        if (!v.isNaN()) { sum = sum.add(v) }
                     })
                     this.setTotal($totalcell, sum)
                 }
                 if ($perccell.length > 0) {
                     const 
                         totcellid = $perccell.attr(Attributes.PERCENTAGEWRAPPER),
-                        $totcell = this.$tbody.find('#' + totcellid)
+                        $totcell = $tbody.find('#' + totcellid)
+                        $allinputs = $allinputs.filter(function(){ return !$(this).is('#' + totcellid)})
                     if ($totcell.is('input')) {
-                        tot = parseInt($totcell.val())
+                        tot = new BigNumber($totcell.val())
                     } else if ($totcell.is(Selector.DATASTOREATTR)) {
-                        tot = parseInt($totcell.attr(Attributes.DATASTOREATTR))
+                        tot = new BigNumber($totcell.attr(Attributes.DATASTOREATTR))
                     }
                     else {
-                        tot = parseInt($totcell.html())
+                        tot = new BigNumber($totcell.html())
                     }
                     if (!isNaN(tot)) {
                         $.each($allinputs, function() {
                             const
                                 $e = $(this),
-                                v = parseInt($e.val())
-                            if (v && !isNaN(v)) { sum += v }
+                                v = new BigNumber($e.val())
+                            if (v && !v.isNaN()) { sum = sum.add(v) }
                         })
-                        if (!isNaN(sum)) {
-                            let per = Math.floor(sum / tot * 100)
+                        if (!sum.isNaN()) {
+                            let per = sum.div(tot).times(100)
                             this.setTotal($perccell, per, { poststring: '%'})
                         }
                     } else {
@@ -292,20 +305,27 @@ const DynTbl = (($) => {
                 }
             }
             if (directions.indexOf('row') > -1) {
+
+                const allinputs = []
+                
+                $cells.each( function(){ 
+                    let e = $(this).find(Selector.INPUTROWWATCHED).first() 
+                    e.length > 0 && allinputs.push(e) 
+                })
                 
                 $cells = $input.closest('tr').children()
                 $cell = $input.closest('td')
-                $allinputs = $cells.find('> * input')
+                $allinputs = $(allinputs)
                 $totalcell = $cells.filter(Selector.TOTALWRAPPER)
                 $perccell = $cells.filter(Selector.PERCENTAGEWRAPPER)
-                sum = 0
+                sum = new BigNumber(0)
 
                 if ($totalcell.length > 0) {
                     $.each($allinputs, function() {
                         const
                             $e = $(this),
-                            v = parseInt($e.val())
-                        if (!isNaN(v)) { sum += v }
+                            v = new BigNumber($e.val())
+                        if (!v.isNaN()) { sum = sum.add(v) }
                     })
                     this.setTotal($totalcell, sum)
                 }
@@ -313,24 +333,25 @@ const DynTbl = (($) => {
                 if ($perccell.length > 0) {
                     const 
                         totcellid = $perccell.attr(Attributes.PERCENTAGEWRAPPER),
-                        $totcell = this.$tbody.find('#' + totcellid)
+                        $totcell = $tbody.find('#' + totcellid)
+                        $allinputs = $allinputs.filter(function(){ return !$(this).is('#' + totcellid)})
                     if ($totcell.is('input')) {
-                        tot = parseInt($totcell.val())
+                        tot = new BigNumber($totcell.val())
                     } else if ($totcell.is(Selector.DATASTOREATTR)) {
-                        tot = parseInt($totcell.attr(Attributes.DATASTOREATTR))
+                        tot = new BigNumber($totcell.attr(Attributes.DATASTOREATTR))
                     }
                     else {
-                        tot = parseInt($totcell.html())
+                        tot = new BigNumber($totcell.html())
                     }                
-                    if (!isNaN(tot)) {
+                    if (!tot.isNaN()) {
                         $.each($allinputs, function() {
                             const
                                 $e = $(this),
-                                v = parseInt($e.val())
-                            if (v && !isNaN(v)) { sum += v }
+                                v = new BigNumber($e.val())
+                            if (v && !v.isNaN()) { sum = sum.add(v) }
                         })
-                        if (!isNaN(sum)) {
-                            let per = Math.floor(sum / tot * 100)
+                        if (!sum.isNaN()) {
+                            let per = sum.div(tot).times(100)
                             this.setTotal($perccell, per, { poststring: '%'})
                         }
                     } else {
@@ -343,23 +364,30 @@ const DynTbl = (($) => {
         // set total content
         setTotal ($totalcell, sum, params) {
             params = params || {}
-            params.poststring = params.poststring || ''
-            $totalcell.html(`${sum}${params.poststring}`)
-                .attr(Attributes.DATASTOREATTR, sum)
+            if (sum.isNaN() || !sum.isFinite()) {
+                $totalcell.html(`N/A`)
+            }
+            else {
+                params.poststring = params.poststring || ''
+                sum = sum.isInteger() ? sum.toNumber() : sum.toFixed(2)
+                $totalcell.html(`${sum}${params.poststring}`)
+                    .attr(Attributes.DATASTOREATTR, sum)
+            }
         }
 
         // sums up all [dyntbl-watch] into [dyntbl-total]
         refreshTotals () {
             const 
-            $inputs = this.$tbody.find(Selector.WATCHEDINPUT), 
-            ut = this.updateTotals.bind(this)
-            $inputs.each(function() {
-                ut($(this))
-            })
+                { $thead, $tbody } = this.getElements(),
+                $inputs = $tbody.find(Selector.WATCHEDINPUT), 
+                ut = this.updateTotals.bind(this)
+                $inputs.each(function() {
+                    ut($(this))
+                })
             if ($inputs.length == 0) {
-                const $totals = this.$tbody.find(`> tr > ${Selector.TOTALWRAPPER}`)
+                const $totals = $tbody.find(`> tr > ${Selector.TOTALWRAPPER}`), setTotal = this.setTotal
                 $totals.each(function(){
-                    this.setTotal($(this), 0)
+                    setTotal($(this), new BigNumber(0))
                 })
             }
             this.refreshAllTotals()
@@ -368,24 +396,32 @@ const DynTbl = (($) => {
         // Sums up totals (after all totals have been updated)
         refreshAllTotals () {
             const
-                $e = this.$tbody.find(Selector.TOTALALLWRAPPER)
+                { $thead, $tbody } = this.getElements(),
+                $e = $tbody.find(Selector.TOTALALLWRAPPER)
             if ($e.length > 0) {
-                // same line
+                // total same line
                 const rowcells = $e.closest('tr')
-                    .find(Selector.TOTALWRAPPER)
+                    .find(Selector.TOTALWRAPPER).not(Selector.TOTALALLEXCLUDE)
                 if (rowcells.length > 0) {
                     let
-                        sum = 0
+                        sum = new BigNumber(0)
                     $.each(rowcells, function() {
                         const
                             $e = $(this),
-                            v = parseInt($e.attr(Attributes.DATASTOREATTR))
-                        if (!isNaN(v)) { sum += v }
+                            v = new BigNumber($e.attr(Attributes.DATASTOREATTR))
+                        if (!v.isNaN()) { sum = sum.add(v) }
                     })
                     this.setTotal($e, sum)
                 } else {
                     console.warn('need to check same column cells to get total :(')
                 }
+            }
+        }
+
+        getElements() {
+            return {
+                $thead: this.$t.find('thead'),
+                $tbody: this.$t.find('tbody')
             }
         }
 
@@ -433,7 +469,7 @@ const DynTbl = (($) => {
 
     $(window)
         .on(Event.LOAD_DATA_API, () => {
-            $(`table[${TABLEATTR}]`).each(function () {
+            $(`[${TABLEATTR}]`).each(function () {
                 const $table = $(this)
                 DynTbl._jQueryInterface.call($table, $table.data())
             })
